@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Katalog Produk — EstimaCore</title>
+<script>
+  // Jalan SEBELUM <body> dirender, supaya tidak ada kedipan tema saat halaman muncul.
+  // Kunci localStorage-nya sama dengan halaman Price Finder — tema ikut lintas halaman.
+  (function () {
+    const simpan = localStorage.getItem("estimacore_theme");
+    const os = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+    document.documentElement.dataset.theme = simpan || os;
+  })();
+</script>
+<style>
+  :root {
+    --bg: #070809;
+    --surface: #101317;
+    --line: #23282f;
+    --line-soft: #171b21;
+    --text: #e8eaed;
+    --muted: #98a1ad;
+    --brand: #3b82f6;
+    --brand-dark: #2563eb;
+    --ok: #34d399;
+    --ok-bg: #072a20;
+    --warn: #fbbf24;
+    --bad: #f87171;
+    --bad-bg: #2e1416;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 28px rgba(0,0,0,.45);
+    --radius: 12px;
+  }
+  :root[data-theme="light"] {
+    --bg: #f6f7f9;
+    --surface: #ffffff;
+    --line: #e5e7eb;
+    --line-soft: #f1f2f4;
+    --text: #111827;
+    --muted: #6b7280;
+    --brand: #2563eb;
+    --brand-dark: #1d4ed8;
+    --ok: #059669;
+    --ok-bg: #ecfdf5;
+    --warn: #b45309;
+    --bad: #dc2626;
+    --bad-bg: #fef2f2;
+    --shadow: 0 1px 2px rgba(16,24,40,.04), 0 4px 16px rgba(16,24,40,.06);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0 20px 80px;
+    background: var(--bg); color: var(--text);
+    font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+
+  header { padding: 36px 0 24px; }
+  .header-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .logo { display: inline-flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .logo .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--brand); box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand) 18%, transparent); }
+  h1 { margin: 12px 0 6px; font-size: 30px; letter-spacing: -.02em; font-weight: 650; }
+  .sub { margin: 0; color: var(--muted); max-width: 62ch; }
+
+  nav { display: flex; gap: 6px; margin-top: 18px; }
+  nav a {
+    padding: 7px 14px; border-radius: 99px; text-decoration: none;
+    color: var(--muted); font-size: 13.5px; font-weight: 550;
+    border: 1px solid transparent;
+  }
+  nav a:hover { background: var(--line-soft); color: var(--text); }
+  nav a.active { background: var(--surface); border-color: var(--line); color: var(--text); }
+
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+
+  .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+  .toolbar .grow { flex: 1; min-width: 200px; }
+
+  input, select {
+    width: 100%; padding: 9px 12px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid var(--line); border-radius: 9px;
+    font: inherit; font-size: 14px;
+  }
+  input:focus, select:focus { outline: 2px solid var(--brand); outline-offset: -1px; background: var(--surface); }
+  input::placeholder { color: var(--muted); }
+
+  button {
+    display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
+    padding: 9px 16px; border: 1px solid transparent; border-radius: 9px;
+    background: var(--brand); color: #fff; font: inherit; font-size: 14px; font-weight: 550;
+    cursor: pointer; transition: background .12s, transform .06s;
+  }
+  button:hover:not(:disabled) { background: var(--brand-dark); }
+  button:active:not(:disabled) { transform: translateY(1px); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.ghost { background: transparent; color: var(--text); border-color: var(--line); }
+  button.ghost:hover:not(:disabled) { background: var(--line-soft); }
+  button.danger { background: transparent; color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, transparent); }
+  button.danger:hover:not(:disabled) { background: var(--bad-bg); }
+  button.tiny { padding: 5px 10px; font-size: 12.5px; border-radius: 7px; }
+
+  .scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { padding: 11px 14px; text-align: left; border-bottom: 1px solid var(--line-soft); vertical-align: middle; }
+  th { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); background: var(--line-soft); white-space: nowrap; }
+  tbody tr:hover { background: color-mix(in srgb, var(--brand) 4%, transparent); }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td.act { text-align: right; white-space: nowrap; }
+  td.act button { margin-left: 6px; }
+  tr.editing { background: color-mix(in srgb, var(--brand) 7%, transparent); }
+  tr.editing input { padding: 6px 9px; font-size: 13px; }
+
+  .tag { display: inline-block; padding: 2px 9px; border-radius: 99px; background: var(--line-soft); color: var(--muted); font-size: 11.5px; font-weight: 600; }
+
+  .bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 20px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+  .empty { padding: 48px 20px; text-align: center; color: var(--muted); }
+
+  /* Switch tema — sama dengan halaman Price Finder */
+  .switch { padding: 0; background: none; border: none; box-shadow: none; border-radius: 99px; line-height: 0; }
+  .switch:hover:not(:disabled) { background: none; }
+  .switch:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
+  .switch .track { position: relative; display: inline-flex; align-items: center; justify-content: space-between; width: 62px; height: 32px; padding: 0 8px; border: 1px solid var(--line); border-radius: 99px; background: var(--line-soft); }
+  .switch:hover .track { border-color: color-mix(in srgb, var(--brand) 45%, var(--line)); }
+  .switch .ico { font-size: 13px; line-height: 1; z-index: 1; transition: opacity .18s; }
+  .switch .sun { color: #f59e0b; opacity: .35; }
+  .switch .moon { color: #cbd5e1; opacity: 1; }
+  .switch .knob { position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: var(--surface); box-shadow: 0 1px 3px rgba(0,0,0,.35); transform: translateX(30px); transition: transform .2s cubic-bezier(.4,.2,.2,1); }
+  :root[data-theme="light"] .switch .knob { transform: translateX(0); }
+  :root[data-theme="light"] .switch .sun { opacity: 1; }
+  :root[data-theme="light"] .switch .moon { opacity: .3; }
+
+  /* Toast — pengganti alert() supaya tidak memblokir dan tidak jelek */
+  #toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(12px);
+    padding: 11px 18px; border-radius: 10px; font-size: 13.5px; font-weight: 550;
+    background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow);
+    opacity: 0; pointer-events: none; transition: opacity .18s, transform .18s; z-index: 90;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  #toast.ok { border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); color: var(--ok); }
+  #toast.bad { border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); color: var(--bad); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="header-row">
+      <span class="logo"><span class="dot"></span> EstimaCore</span>
+      <button id="themeBtn" class="switch" role="switch" aria-checked="false"
+              onclick="toggleTheme()" title="Ganti tema" aria-label="Ganti tema">
+        <span class="track">
+          <span class="ico sun">☀</span>
+          <span class="ico moon">☾</span>
+          <span class="knob"></span>
+        </span>
+      </button>
+    </div>
+    <h1>Katalog Produk</h1>
+    <p class="sub">
+      Kelola isi tabel <code>products</code> — inilah katalog yang dicari Price Finder.
+      Menambah produk di sini langsung memengaruhi hasil pencarian berikutnya.
+    </p>
+    <nav>
+      <a href="/">Price Finder</a>
+      <a href="/products.html" class="active">Katalog Produk</a>
+    </nav>
+  </header>
+
+  <section class="card">
+    <div class="toolbar">
+      <div class="grow">
+        <input id="search" type="search" placeholder="Cari nama, brand, atau kategori…" />
+      </div>
+      <button id="btnNew" onclick="mulaiTambah()">+ Produk baru</button>
+    </div>
+
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:60px">ID</th>
+            <th>Nama produk</th>
+            <th style="width:130px">Brand</th>
+            <th style="width:130px">Kategori</th>
+            <th style="width:130px" class="num">Harga</th>
+            <th style="width:80px">Unit</th>
+            <th style="width:150px"></th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+
+    <div id="empty" class="empty" style="display:none">Belum ada produk yang cocok.</div>
+
+    <div class="bar">
+      <span id="info">Memuat…</span>
+      <span>
+        <button class="ghost tiny" id="prev" onclick="pindahHalaman(-1)">← Sebelumnya</button>
+        <button class="ghost tiny" id="next" onclick="pindahHalaman(1)">Berikutnya →</button>
+      </span>
+    </div>
+  </section>
+
+</div>
+
+<div id="toast"></div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const LIMIT = 25;
+
+  let offset = 0;
+  let total = 0;
+  let daftar = [];
+  let sedangEdit = null; // id produk yang barisnya sedang jadi form, atau "baru"
+
+  /* ---------- Tema ---------- */
+  function syncThemeButton() {
+    $("themeBtn").setAttribute(
+      "aria-checked",
+      String(document.documentElement.dataset.theme === "light")
+    );
+  }
+  function toggleTheme() {
+    const baru = document.documentElement.dataset.theme === "light" ? "dark" : "light";
+    document.documentElement.dataset.theme = baru;
+    localStorage.setItem("estimacore_theme", baru);
+    syncThemeButton();
+  }
+  syncThemeButton();
+
+  /* ---------- Util ---------- */
+  const rupiah = (n) =>
+    n === null || n === undefined ? "—" : "Rp " + Number(n).toLocaleString("id-ID");
+
+  let toastTimer;
+  function toast(pesan, tone = "ok") {
+    const el = $("toast");
+    el.textContent = pesan;
+    el.className = "show " + tone;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => (el.className = ""), 2600);
+  }
+
+  // Semua nilai dari server masuk lewat textContent / .value, tidak pernah innerHTML —
+  // nama produk itu teks bebas yang diketik user, jadi tidak boleh jadi markup.
+  function td(row, text, cls) {
+    const el = document.createElement("td");
+    el.textContent = text;
+    if (cls) el.className = cls;
+    row.appendChild(el);
+    return el;
+  }
+
+  function inputCell(row, value, placeholder, tipe = "text") {
+    const cell = document.createElement("td");
+    const inp = document.createElement("input");
+    inp.value = value ?? "";
+    inp.placeholder = placeholder;
+    if (tipe === "number") { inp.type = "number"; inp.min = "0"; inp.step = "any"; }
+    cell.appendChild(inp);
+    row.appendChild(cell);
+    return inp;
+  }
+
+  function tombol(label, cls, onClick) {
+    const b = document.createElement("button");
+    b.className = cls + " tiny";
+    b.textContent = label;
+    b.onclick = onClick;
+    return b;
+  }
+
+  /* ---------- Baca ---------- */
+  async function muat() {
+    const q = $("search").value.trim();
+    const url = `/api/products?limit=${LIMIT}&offset=${offset}` + (q ? `&q=${encodeURIComponent(q)}` : "");
+
+    try {
+      const res = await fetch(url);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || res.status);
+
+      daftar = data.items;
+      total = data.total;
+      render();
+    } catch (err) {
+      toast("Gagal memuat: " + err.message, "bad");
+    }
+  }
+
+  function render() {
+    const tbody = $("tbody");
+    tbody.innerHTML = "";
+
+    for (const p of daftar) {
+      tbody.appendChild(String(p.id) === String(sedangEdit) ? barisForm(p) : barisLihat(p));
+    }
+
+    // Form produk baru ditaruh di BAWAH, bukan di atas — daftarnya urut id menaik,
+    // jadi di situlah produk itu nanti benar-benar muncul setelah disimpan.
+    if (sedangEdit === "baru") tbody.appendChild(barisForm(null));
+
+    const kosong = daftar.length === 0 && sedangEdit !== "baru";
+    $("empty").style.display = kosong ? "block" : "none";
+
+    const dari = total === 0 ? 0 : offset + 1;
+    const sampai = Math.min(offset + LIMIT, total);
+    $("info").textContent = total === 0 ? "Tidak ada produk" : `Menampilkan ${dari}–${sampai} dari ${total} produk`;
+    $("prev").disabled = offset === 0;
+    $("next").disabled = offset + LIMIT >= total;
+    $("btnNew").disabled = sedangEdit !== null;
+  }
+
+  function barisLihat(p) {
+    const row = document.createElement("tr");
+    td(row, p.id);
+    td(row, p.name);
+    td(row, p.brand || "—");
+
+    const cat = document.createElement("td");
+    if (p.category) {
+      const tag = document.createElement("span");
+      tag.className = "tag";
+      tag.textContent = p.category;
+      cat.appendChild(tag);
+    } else {
+      cat.textContent = "—";
+    }
+    row.appendChild(cat);
+
+    td(row, rupiah(p.price), "num");
+    td(row, p.unit || "—");
+
+    const aksi = document.createElement("td");
+    aksi.className = "act";
+    aksi.appendChild(tombol("Edit", "ghost", () => { sedangEdit = String(p.id); render(); }));
+    aksi.appendChild(tombol("Hapus", "danger", () => hapus(p)));
+    row.appendChild(aksi);
+
+    return row;
+  }
+
+  // Satu fungsi untuk tambah DAN edit: produk baru = form dengan nilai kosong.
+  // Kalau dipisah jadi dua fungsi, aturan validasi & layout-nya cepat menyimpang.
+  function barisForm(p) {
+    const baru = p === null;
+    const row = document.createElement("tr");
+    row.className = "editing";
+
+    td(row, baru ? "baru" : p.id);
+    const iName = inputCell(row, p?.name, "Nama produk (wajib)");
+    const iBrand = inputCell(row, p?.brand, "Brand");
+    const iCat = inputCell(row, p?.category, "Kategori");
+    const iPrice = inputCell(row, p?.price, "0", "number");
+    const iUnit = inputCell(row, p?.unit ?? "pcs", "pcs");
+
+    const aksi = document.createElement("td");
+    aksi.className = "act";
+
+    const simpan = async () => {
+      const body = {
+        name: iName.value,
+        brand: iBrand.value,
+        category: iCat.value,
+        price: iPrice.value,
+        unit: iUnit.value,
+      };
+      await kirim(baru ? "POST" : "PUT", baru ? "" : `/${p.id}`, body);
+    };
+
+    const btnSimpan = tombol("Simpan", "", simpan);
+    aksi.appendChild(btnSimpan);
+    aksi.appendChild(tombol("Batal", "ghost", () => { sedangEdit = null; render(); }));
+    row.appendChild(aksi);
+
+    // Enter = simpan, Escape = batal. Mengisi katalog itu pekerjaan berulang;
+    // memaksa pindah ke mouse tiap baris membuatnya jauh lebih lambat.
+    for (const inp of [iName, iBrand, iCat, iPrice, iUnit]) {
+      inp.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") { e.preventDefault(); simpan(); }
+        if (e.key === "Escape") { sedangEdit = null; render(); }
+      });
+    }
+
+    setTimeout(() => iName.focus(), 0);
+    return row;
+  }
+
+  /* ---------- Tulis ---------- */
+  async function kirim(method, path, body) {
+    try {
+      const res = await fetch("/api/products" + path, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || res.status);
+
+      sedangEdit = null;
+      toast(method === "POST" ? `"${data.name}" ditambahkan` : `"${data.name}" disimpan`);
+
+      // Daftar diurutkan id menaik, jadi produk baru mendarat di halaman TERAKHIR.
+      // Tanpa lompat ke sana, user menekan Simpan lalu tidak melihat apa-apa berubah
+      // dan mengira gagal.
+      if (method === "POST") await keHalamanTerakhir();
+      else await muat();
+    } catch (err) {
+      toast("Gagal: " + err.message, "bad");
+    }
+  }
+
+  async function keHalamanTerakhir() {
+    const q = $("search").value.trim();
+    const res = await fetch(`/api/products?limit=1&offset=0` + (q ? `&q=${encodeURIComponent(q)}` : ""));
+    const data = await res.json();
+    offset = Math.max(0, Math.floor(Math.max(data.total - 1, 0) / LIMIT) * LIMIT);
+    await muat();
+  }
+
+  async function hapus(p) {
+    if (!confirm(`Hapus "${p.name}" dari katalog?\n\nProduk ini tidak akan muncul lagi di hasil pencarian Price Finder.`)) return;
+
+    try {
+      const res = await fetch(`/api/products/${p.id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || res.status);
+
+      // Kalau baris terakhir di halaman ini yang dihapus, mundur satu halaman —
+      // kalau tidak, user akan menatap halaman kosong tanpa tahu kenapa.
+      if (daftar.length === 1 && offset > 0) offset -= LIMIT;
+      toast(`"${data.deleted.name}" dihapus`);
+      await muat();
+    } catch (err) {
+      toast("Gagal menghapus: " + err.message, "bad");
+    }
+  }
+
+  function mulaiTambah() {
+    sedangEdit = "baru";
+    render();
+  }
+
+  function pindahHalaman(arah) {
+    offset = Math.max(0, offset + arah * LIMIT);
+    sedangEdit = null;
+    muat();
+  }
+
+  /* ---------- Pencarian ---------- */
+  // Debounce: tanpa ini, tiap huruf yang diketik memicu satu query ke database.
+  let cariTimer;
+  $("search").addEventListener("input", () => {
+    clearTimeout(cariTimer);
+    cariTimer = setTimeout(() => {
+      offset = 0;
+      sedangEdit = null;
+      muat();
+    }, 250);
+  });
+
+  muat();
+</script>
+</body>
+</html>
