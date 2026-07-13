@@ -1,4 +1,4 @@
-# EstimaCore — Price Finder Prototype
+# Procurement Price Finder Prototype
 
 Modul price finder generic lintas bidang bisnis: kirim daftar barang (paste teks atau upload
 Excel/CSV/TXT), sistem mencari tiap baris ke database produk secara berurutan, dan berhenti
