@@ -1,10 +1,35 @@
 import { Router } from "express";
 import { Op } from "sequelize";
+import { sequelize } from "../database/koneksi_database.js";
 import { Product } from "./Product.js";
+import {
+  embedText,
+  productEmbeddingText,
+  toVectorLiteral,
+} from "./services/embeddingService.js";
 
 export const productRoutes = Router();
 
 const MAX_LIMIT = 100;
+
+// Perbarui vektor embedding sebuah produk. WAJIB dipanggil setiap name/brand/
+// category berubah — embedding basi tidak menghasilkan error apa pun, kualitas
+// pencarian cuma memburuk diam-diam.
+// Gagal embed TIDAK menggagalkan simpan produk (admin tetap bisa kerja saat
+// OpenRouter down): embedding dibiarkan NULL/basi, tambal dengan `npm run embed`.
+async function refreshEmbedding(product) {
+  try {
+    const vec = await embedText(productEmbeddingText(product));
+    await sequelize.query(
+      "UPDATE products SET embedding = :vec::vector WHERE id = :id",
+      { replacements: { vec: toVectorLiteral(vec), id: product.id } }
+    );
+  } catch (err) {
+    console.warn(
+      `[productRoutes] gagal embed produk ${product.id} ("${product.name}"): ${err.message} — jalankan \`npm run embed\` untuk menambal`
+    );
+  }
+}
 
 // Bentuk yang dikirim ke client. pg mengembalikan BIGINT dan NUMERIC sebagai string;
 // dinormalkan di sini supaya UI tidak perlu tahu soal itu (dan supaya angka tidak
@@ -98,6 +123,7 @@ productRoutes.post("/", async (req, res) => {
     if (error) return res.status(400).json({ message: error });
 
     const product = await Product.create(data);
+    await refreshEmbedding(product);
     res.status(201).json(toJson(product));
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -114,6 +140,11 @@ productRoutes.put("/:id", async (req, res) => {
     if (error) return res.status(400).json({ message: error });
 
     await product.update(data);
+    // Hanya re-embed kalau field yang ikut di-embed berubah — edit harga/unit
+    // tidak perlu membakar API call.
+    if (data.name !== undefined || data.brand !== undefined || data.category !== undefined) {
+      await refreshEmbedding(product);
+    }
     res.json(toJson(product));
   } catch (err) {
     res.status(500).json({ message: err.message });

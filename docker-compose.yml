@@ -1,0 +1,37 @@
+# Postgres + pgvector untuk EstimaCore PriceFinder.
+#
+# Image pgvector/pgvector:pg17 = PostgreSQL 17 lengkap dengan extension pgvector
+# sudah terpasang di dalamnya (tinggal CREATE EXTENSION vector di buat_tabel.sql —
+# tidak ada yang perlu di-install manual ke dalam container).
+#
+# Port host sengaja 5433: PostgreSQL Windows lama tetap hidup di 5432 sebagai
+# cadangan, dua-duanya berdampingan. Setelah container jalan, ubah port di
+# DATABASE_URL (.env) dari 5432 ke 5433, lalu: npm run init-db && npm run seed
+#
+# Kredensial di bawah HARUS sama dengan DATABASE_URL di .env. Ini password
+# development lokal — kalau suatu saat dipakai di server sungguhan, ganti dan
+# pindahkan ke secret, jangan dibiarkan di file yang ikut git.
+
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    container_name: estimacore-pg
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: "123123123"
+      POSTGRES_DB: procurement
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d procurement"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  # Named volume — data hidup terpisah dari container, aman walau container
+  # dihapus/dibuat ulang. Hilang hanya kalau sengaja: docker compose down -v
+  pgdata:

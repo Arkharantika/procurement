@@ -155,6 +155,7 @@ async function seed() {
     `✅ Seeded ${sampleProducts.length} produk di ${categories.length} kategori: ${categories.join(", ")}`
   );
   console.log("   Data sengaja berklaster (varian mirip) supaya jalur ambigu & LLM rerank ikut teruji.");
+  console.log("   ➡️  Lanjutkan dengan `npm run embed` untuk mengisi kolom embedding (pencarian vektor).");
   process.exit(0);
 }
 

@@ -96,13 +96,39 @@ Setelah PDF di atas, proyek berkembang lewat beberapa keputusan besar:
 ## 4. Keputusan desain final (tercermin di source code)
 
 - **Satu tabel `products` saja** — lihat `database/buat_tabel.sql`. Kolom: id,
-  name, brand, category, price, unit. Sengaja tidak ada kolom atribut spesifik domain.
-- **pg_trgm, bukan pgvector** — untuk prototype ini dipilih karena lebih simpel untuk
-  dijalankan (tidak butuh model embedding terpisah) dan cukup baik untuk data yang belum
-  terlalu besar. Catatan dari diskusi: pgvector lebih unggul untuk deskripsi natural,
-  sedangkan pg_trgm sering lebih baik untuk kode model/part number yang maknanya lemah
-  secara semantik tapi kuat secara karakter. Untuk versi produksi dengan katalog besar,
-  pertimbangkan hybrid (pg_trgm + pgvector).
+  name, brand, category, price, unit, embedding. Sengaja tidak ada kolom atribut
+  spesifik domain.
+- **Database jalan di Docker, bukan Postgres Windows** (REVISI 2026-07-14) — container
+  `pgvector/pgvector:pg17` via `docker-compose.yml`, port host **5433**. Alasannya:
+  pgvector tidak tersedia di Postgres Windows biasa (perlu compile manual). Postgres
+  Windows lama tetap hidup di 5432 tapi TIDAK dipakai aplikasi — isinya data lama
+  pra-hybrid, jangan bingung kalau isinya beda. Konsekuensi: Docker Desktop harus jalan
+  saat aplikasi dipakai (`restart: unless-stopped` + auto-start Docker mengurusnya).
+- **Hybrid pg_trgm + pgvector** (REVISI 2026-07-14 — dulu "pg_trgm saja, hybrid nanti").
+  Pemicunya: query lintas bahasa ("casual shoes dark" vs katalog "Sepatu ... Hitam")
+  skor trigramnya ~0.05, selalu jatuh ke internet padahal barangnya ada. Sekarang
+  `searchProduct()` menggabungkan kandidat trigram + kandidat vektor (cosine) dengan
+  **Reciprocal Rank Fusion** — skor kedua jalur tidak sebanding secara langsung, jadi
+  digabung lewat peringkat, bukan nilai. Pembagian peran tetap sesuai diskusi awal:
+  trigram kuat untuk kode model/part number, vektor kuat untuk deskripsi natural/lintas
+  bahasa. Kontrak keluaran tidak berubah: `score` tetap skor trigram (dipakai jalur
+  pintas AUTO_MATCH), kandidat jalur vektor membawa skor trigram aslinya yang rendah
+  sehingga jalur pintas tetap konservatif.
+- **Embedding via endpoint embeddings OpenRouter** (`embeddingService.js`) — model
+  `openai/text-embedding-3-large` dipangkas ke **1024 dimensi** lewat param `dimensions`
+  (bukan 3072 bawaan, karena index HNSW pgvector maksimal 2000 dimensi; sudah
+  diverifikasi OpenRouter meneruskan param ini). API key yang sama dengan LLM — tidak
+  ada kredensial/provider baru. Sempat dipertimbangkan Ollama lokal, ditolak user
+  ("lebih bersih" tanpa service lokal). PENTING: dimensi kolom `vector(1024)` terkunci
+  ke pilihan model — ganti model = ubah kolom + `npm run embed -- --all` + ukur ulang
+  `VECTOR_MIN_SIM`. Teks yang di-embed = `name | brand | category`
+  (`productEmbeddingText()`) — WAJIB satu sumber, jangan disalin manual.
+- **Embedding harus tetap segar** — tiga jalur pengisian: `npm run embed` (backfill
+  idempotent, hanya baris NULL; `-- --all` untuk paksa semua), otomatis saat
+  create/update produk di `productRoutes.js` (hanya kalau name/brand/category berubah —
+  edit harga tidak membakar API call), dan gagal-embed TIDAK menggagalkan simpan produk
+  (embedding dibiarkan NULL, ditambal backfill). Kalau OpenRouter down saat pencarian,
+  `searchProduct()` turun anggun ke trigram-only (log warning), bukan error.
 - **`word_similarity()`, BUKAN `similarity()`** (`src/services/searchService.js`). Ini penting
   dan mudah salah: `similarity()` menormalisasi terhadap gabungan trigram kedua string,
   sehingga query pendek yang dicocokkan ke nama produk panjang dihukum berat —
@@ -110,11 +136,17 @@ Setelah PDF di atas, proyek berkembang lewat beberapa keputusan besar:
   cocok. `word_similarity` mencari padanan terbaik query di dalam nama produk, jadi tidak
   sensitif terhadap selisih panjang. Jangan diganti balik ke `similarity()` tanpa mengukur ulang.
 - **Retrieval-then-rerank benar-benar diimplementasikan** (Layer 1 + Layer 2 dari diskusi PDF):
-  trigram menyaring top-8 → `rerankCandidates()` di `aiService.js` menyerahkan kandidat itu ke
-  LLM untuk dipilih + diberi confidence → user cuma dipanggil kalau LLM pun ragu. Konsekuensi
-  penting: **skor trigram bukan lagi penentu benar/salah**, ia cuma menentukan siapa yang masuk
-  daftar kandidat. Jadi tidak perlu lagi menebak-nebak angka ambang batas seperti versi awal.
-- **Jumlah AI call per baris**: 1 (extract) + 1 (rerank, kecuali kena jalur pintas
+  hybrid trigram+vektor menyaring top-8 → `rerankCandidates()` di `aiService.js` menyerahkan
+  kandidat itu ke LLM untuk dipilih + diberi confidence → user cuma dipanggil kalau LLM pun
+  ragu. Konsekuensi penting: **skor retrieval bukan penentu benar/salah**, ia cuma menentukan
+  siapa yang masuk daftar kandidat. Ini juga alasan `VECTOR_MIN_SIM` sengaja longgar: barang
+  di luar katalog yang domainnya berdekatan boleh lolos jadi kandidat (terukur: "MCCB
+  Schneider 100A" menyeret AC 0.35–0.37) — rerank yang menolaknya, lalu jatuh ke internet.
+  Terverifikasi 2026-07-14: "casual shoes dark" → rerank confidence 0.5 → tanya user dengan
+  pilihan sepatu hitam (aturan "jangan diam-diam memilihkan" tetap bekerja pada kandidat
+  jalur vektor); "kertas ukuran folio 80 gram" → confidence 0.95 auto-pilih F4 80gr.
+- **Jumlah AI call per baris**: 1 (extract) + 1 embedding query (mikro, ~$0.000001 —
+  bukan LLM call) + 1 (rerank, kecuali kena jalur pintas
   `AUTO_MATCH_SCORE`) + 1 lagi hanya kalau SerpAPI jatuh ke jalur organik. Ini KONTRA dengan
   rekomendasi "batch" di Masalah 3 di atas, tapi disengaja: karena loop-nya sudah pasti
   berhenti-jalan menunggu user, batching di depan tidak memberi banyak penghematan sementara
@@ -123,7 +155,13 @@ Setelah PDF di atas, proyek berkembang lewat beberapa keputusan besar:
   pada GUC `pg_trgm.*_threshold` milik server Postgres (ini jebakan di versi awal: konstanta
   `NOT_FOUND_SCORE = 0.3` dulunya dead code, karena operator `%` sudah memfilter di 0.3 lebih
   dulu di sisi Postgres):
-  - `SEARCH_MIN_SCORE = 0.3` (`searchService.js`) → batas bawah masuk daftar kandidat
+  - `SEARCH_MIN_SCORE = 0.3` (`searchService.js`) → batas bawah trigram masuk daftar kandidat
+  - `VECTOR_MIN_SIM = 0.3` (`searchService.js`) → batas bawah cosine jalur vektor. Tanpa
+    floor ini kandidat TIDAK PERNAH kosong (vektor selalu punya "tetangga terdekat") dan
+    jalur internet fallback mati diam-diam. Dikalibrasi 2026-07-14 terhadap seed 60 produk:
+    lintas bahasa yang benar 0.39–0.60, query non-barang maks 0.26. JANGAN dinaikkan ke 0.4
+    demi menyaring barang luar-katalog — kasus lintas bahasa (0.396) ikut mati; angka
+    lengkap ada di komentar `searchService.js`. Ukur ulang kalau ganti model embedding.
   - `AUTO_MATCH_SCORE = 0.9` & `AUTO_MATCH_GAP = 0.15` (`priceFinder.js`) → jalur pintas,
     auto-pilih tanpa memanggil LLM sama sekali
   - `RERANK_AUTO_CONFIDENCE = 0.8` (`priceFinder.js`) → confidence LLM minimal untuk auto-pilih
@@ -190,7 +228,11 @@ Setelah PDF di atas, proyek berkembang lewat beberapa keputusan besar:
 ```
 server.js                       Entry point: Express + Socket.io + endpoint upload file
                                   + POST /api/export (unduh hasil sebagai Excel)
-database/buat_tabel.sql          Schema tabel products + extension pg_trgm
+docker-compose.yml               Postgres 17 + pgvector (image pgvector/pgvector:pg17),
+                                  port host 5433. Kredensial harus sama dengan
+                                  DATABASE_URL di .env.
+database/buat_tabel.sql          Schema tabel products + extension pg_trgm & vector
+                                  + kolom embedding vector(1024) + index HNSW
 database/buat_tabel.js           Schema applier sekali-jalan: baca buat_tabel.sql, kirim ke
                                   Postgres (npm run init-db). Sengaja pakai klien pg mentah,
                                   bukan Sequelize — tabelnya justru belum ada saat ini jalan.
@@ -202,7 +244,12 @@ database/list_dummy_item.js      60 produk contoh di 6 kategori (footwear, watch
                                   ikut teruji; katalog yang tiap barisnya unik tidak akan
                                   pernah memicu jalur tersebut. Menolak jalan kalau tabel
                                   sudah terisi — pakai `npm run seed -- --reset` untuk
-                                  menghapus semua & seed ulang.
+                                  menghapus semua & seed ulang. Lanjutkan dengan
+                                  `npm run embed` setelah seed.
+database/isi_embedding.js        Backfill kolom embedding (npm run embed). Idempotent:
+                                  hanya baris NULL; `-- --all` untuk paksa embed ulang
+                                  semua (wajib setelah ganti model embedding atau ubah
+                                  productEmbeddingText). Batch 50 teks per request.
 src/loadEnv.js                   Muat .env dari root proyek, di-resolve dari lokasi file
                                   (bukan cwd) — supaya script jalan dari direktori mana pun
 src/Product.js                   Model Sequelize untuk tabel products
@@ -213,8 +260,14 @@ src/services/aiService.js        callLLM(), extractJson(), extractLine() — amb
                                   dulu (objek ATAU array) — versi lama selalu mencoba objek
                                   dulu, sehingga jawaban array dari internetService gagal
                                   di-parse dan jalur internet mati diam-diam.
-src/services/searchService.js    searchProduct() — query pg_trgm word_similarity,
-                                  top-8 kandidat + score
+src/services/embeddingService.js embedText()/embedTexts() — endpoint embeddings
+                                  OpenRouter; productEmbeddingText() — format teks yang
+                                  di-embed (SATU sumber untuk backfill & routes);
+                                  toVectorLiteral() — format literal pgvector
+src/services/searchService.js    searchProduct() — hybrid: trigram word_similarity +
+                                  cosine pgvector, digabung RRF, top-8 kandidat.
+                                  Degradasi anggun ke trigram-only kalau embedding
+                                  gagal. Ambang: SEARCH_MIN_SCORE & VECTOR_MIN_SIM.
 src/services/internetService.js  searchInternet() — SerpAPI google_shopping (harga
                                   terstruktur), fallback ke organik+AI; sampai 5 kandidat
                                   supplier, TANPA auto-pick
@@ -229,6 +282,9 @@ src/productRoutes.js             REST CRUD tabel products (/api/products) — li
                                   user mengetik potongan nama yang dia INGAT dan ingin hasil
                                   yang persis mengandung teks itu. Trigram justru akan
                                   memunculkan barang mirip yang tidak dia cari.
+                                  Create/update otomatis refreshEmbedding() kalau
+                                  name/brand/category berubah; gagal embed tidak
+                                  menggagalkan simpan (tambal via npm run embed).
 src/utils/fileParser.js          Parse upload Excel/CSV/TXT jadi array baris teks mentah
 src/utils/excelExport.js         buildQuotationXlsx() — hasil jadi workbook Excel. Subtotal
                                   DIHITUNG ULANG di sini, tidak menerima nilai jadi dari
@@ -253,8 +309,7 @@ public/products.html             UI CRUD katalog produk: cari (debounce), pagina
 - Generate PDF quotation — modul ini berhenti di level "hasil pencarian harga per baris",
   belum sampai ke dokumen akhir
 - Perhitungan margin/markup — disengaja, itu manual di luar sistem
-- Hybrid pg_trgm + pgvector — evaluasi ulang kalau katalog produk sudah besar
-  (puluhan ribu+) atau deskripsi produk sangat bervariasi secara natural language
+- ~~Hybrid pg_trgm + pgvector~~ — SUDAH DIKERJAKAN 2026-07-14, lihat bagian 4
 - Chunked/batch AI extraction — relevan kalau nanti ada mode non-interaktif/bulk processing
 
 ## 7. Kalau melanjutkan development
